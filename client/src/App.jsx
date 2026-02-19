@@ -108,6 +108,7 @@ export default function App() {
           onUndo={undo}
           onClear={clearCanvas}
         />
+        <main style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <CanvasArea
           canvasRef={canvasRef}
           remoteCursors={remoteCursors}
@@ -119,6 +120,7 @@ export default function App() {
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         />
+        </main>
       </div>
     </div>
   );
