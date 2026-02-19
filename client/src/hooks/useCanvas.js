@@ -1,18 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import socket from "../socket";
 
-// ── Private Functions ───────────────────────────────────────────────────────
-
-function setCanvasSize(canvas) {
-  const { width, height } = canvas.getBoundingClientRect();
-  const scale = window.devicePixelRatio;
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.scale(scale, scale);
-  }
-}
+// ── Private Helpers ─────────────────────────────────────────────────────────
 
 function getRelativeCoords(e, canvas) {
   const rect = canvas.getBoundingClientRect();
@@ -21,69 +10,118 @@ function getRelativeCoords(e, canvas) {
   return { x, y };
 }
 
+/**
+ * Normalizes coordinates to a 0-1 range based on the target dimensions.
+ */
+function normalizeCoords(coords, width, height) {
+  return {
+    x: coords.x / width,
+    y: coords.y / height
+  };
+}
+
+/**
+ * Denormalizes coordinates from 0-1 range to pixel dimensions.
+ */
+function denormalizeCoords(normCoords, width, height) {
+  return {
+    x: normCoords.x * width,
+    y: normCoords.y * height
+  };
+}
 
 // ── Custom Hook ─────────────────────────────────────────────────────────────
 
 export const useCanvas = ({ roomId, userName, userColor }) => {
   const canvasRef = useRef(null);
+  const containerRef = useRef(null); // Parent observer
   const [isDrawing, setIsDrawing] = useState(false);
-  const [lastPosition, setLastPosition] = useState(null);
+  const [currentStroke, setCurrentStroke] = useState(null);
   const [remoteCursors, setRemoteCursors] = useState({});
-  const [remoteDraws, setRemoteDraws] = useState([]);
+  const [strokes, setStrokes] = useState([]); // All completed strokes
 
-  // ── Setup Canvas ──────────────────────────────────────────────────────────
+  // ── Setup ResizeObserver ──────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!canvasRef.current) return;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!canvas) return;
 
-    setCanvasSize(canvas);
+    const parent = canvas.parentElement;
+    if (!parent) return;
 
-    // Handle window resize
-    const handleResize = () => {
-      setCanvasSize(canvas);
-      // Redraw everything
-      drawAll(ctx, remoteDraws, []); // Assumes local draw history is empty for this simple case
-    };
-    window.addEventListener("resize", handleResize);
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
 
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [remoteDraws]);
+        // Cache the current context state if needed, but since we redraw everything, 
+        // we just update attributes.
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
 
-
-  // ── Draw All History ────────────────────────────────────────────────────
-  // Function to draw an array of drawing events (lines)
-  const drawAll = (ctx, events) => {
-    events.forEach(drawEvent => {
-      if (drawEvent.type === 'draw_line' && drawEvent.data.from && drawEvent.data.to) {
-        drawLine(ctx, drawEvent.data);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.scale(dpr, dpr);
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          redrawAll();
+        }
       }
     });
-  };
 
-  // Effect to draw remote drawings when they are updated
-  useEffect(() => {
-    if (!canvasRef.current) return;
+    resizeObserver.observe(parent);
+    return () => resizeObserver.disconnect();
+  }, [strokes]); // Redraw when strokes change or resize happens
+
+  // ── Drawing Core ──────────────────────────────────────────────────────────
+
+  const redrawAll = useCallback(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Clear canvas before redrawing
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { width, height } = canvas.getBoundingClientRect();
 
-    // Redraw based on the history of remote draws
-    drawAll(ctx, remoteDraws);
+    ctx.clearRect(0, 0, width, height);
 
-  }, [remoteDraws]);
+    strokes.forEach(stroke => {
+      drawFullStroke(ctx, stroke, width, height);
+    });
+  }, [strokes]);
 
+  const drawFullStroke = (ctx, stroke, canvasW, canvasH) => {
+    if (!stroke.points || stroke.points.length < 1) return;
 
-  // ── Drawing Logic ─────────────────────────────────────────────────────────
+    ctx.beginPath();
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = stroke.size;
 
-  const drawLine = (ctx, { from, to, color, size, tool, glow }) => {
+    if (stroke.tool === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    if (stroke.glow) {
+      ctx.shadowColor = stroke.color;
+      ctx.shadowBlur = stroke.size * 2;
+    } else {
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+    }
+
+    const start = denormalizeCoords(stroke.points[0], canvasW, canvasH);
+    ctx.moveTo(start.x, start.y);
+
+    for (let i = 1; i < stroke.points.length; i++) {
+      const p = denormalizeCoords(stroke.points[i], canvasW, canvasH);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  };
+
+  const drawSegment = (ctx, from, to, color, size, tool, glow) => {
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
@@ -100,7 +138,7 @@ export const useCanvas = ({ roomId, userName, userColor }) => {
 
     if (glow) {
       ctx.shadowColor = color;
-      ctx.shadowBlur = size * 2.5;
+      ctx.shadowBlur = size * 2;
     } else {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
@@ -109,93 +147,162 @@ export const useCanvas = ({ roomId, userName, userColor }) => {
     ctx.stroke();
   };
 
-  const handleDraw = (data) => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    drawLine(ctx, data);
-  };
-
   // ── Socket Listeners ──────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!roomId) return;
 
-    socket.on("draw", handleDraw);
+    socket.on("canvas_state", ({ strokes: newStrokes }) => {
+      setStrokes(newStrokes);
+    });
+
+    socket.on("stroke_start", (data) => {
+      // For real-time feedback, we could manage local "temp" strokes
+      // but let's keep it simple: redraw on stroke_end for history,
+      // and maybe real-time point-by-point for smoothness later.
+    });
+
+    socket.on("stroke_point", (data) => {
+      // Real-time drawing from others
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const { width, height } = canvas.getBoundingClientRect();
+
+      const from = denormalizeCoords(data.from, width, height);
+      const to = denormalizeCoords(data.to, width, height);
+
+      drawSegment(ctx, from, to, data.color, data.size, data.tool, data.glow);
+
+      // Sync pointer with drawing tip
+      setRemoteCursors(prev => ({
+        ...prev,
+        [data.userId || data.id]: {
+          ...prev[data.userId || data.id],
+          x: to.x,
+          y: to.y
+        }
+      }));
+    });
+
+    socket.on("stroke_end", ({ stroke }) => {
+      setStrokes(prev => [...prev, stroke]);
+    });
+
     socket.on("cursor_move", (data) => {
-      setRemoteCursors(prev => ({ ...prev, [data.id]: data }));
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const { width, height } = canvas.getBoundingClientRect();
+      const pos = denormalizeCoords(data, width, height);
+      const userId = data.userId || data.id;
+      setRemoteCursors(prev => ({
+        ...prev,
+        [userId]: { ...prev[userId], ...data, x: pos.x, y: pos.y }
+      }));
     });
-    socket.on("user_left", ({ id }) => {
+
+    socket.on("user_left", ({ user }) => {
+      if (!user) return;
       setRemoteCursors(prev => {
-        const newCursors = { ...prev };
-        delete newCursors[id];
-        return newCursors;
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
       });
-    });
-    socket.on("draw_history", ({ history }) => {
-      setRemoteDraws(history);
     });
 
     return () => {
-      socket.off("draw", handleDraw);
+      socket.off("canvas_state");
+      socket.off("stroke_start");
+      socket.off("stroke_point");
+      socket.off("stroke_end");
       socket.off("cursor_move");
       socket.off("user_left");
-      socket.off("draw_history");
     };
-
   }, [roomId]);
 
-  // ── Mouse/Pointer Handlers ────────────────────────────────────────────────
+  // Redraw when strokes change
+  useEffect(() => {
+    redrawAll();
+  }, [strokes, redrawAll]);
+
+
+  // ── Pointer Handlers ──────────────────────────────────────────────────────
 
   const startDraw = useCallback((e, color, size, tool, glow) => {
-    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     setIsDrawing(true);
-    const pos = getRelativeCoords(e, canvasRef.current);
-    setLastPosition(pos);
+    const { width, height } = canvas.getBoundingClientRect();
+    const pos = getRelativeCoords(e, canvas);
+    const normPos = normalizeCoords(pos, width, height);
+
+    const newStroke = {
+      color,
+      size,
+      tool,
+      glow,
+      points: [normPos]
+    };
+
+    setCurrentStroke(newStroke);
+    socket.emit("stroke_start", { point: normPos, color, size, tool, glow });
   }, []);
 
   const moveDraw = useCallback((e, color, size, tool, glow) => {
-    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    // Send cursor position regardless of drawing state
-    const cursorData = { ...getRelativeCoords(e, canvasRef.current), id: socket.id, userName, userColor };
-    socket.emit("cursor_move", { roomId, ...cursorData });
+    const { width, height } = canvas.getBoundingClientRect();
+    const pos = getRelativeCoords(e, canvas);
+    const normPos = normalizeCoords(pos, width, height);
 
-    if (!isDrawing || !lastPosition) return;
+    // Always send cursor (normalized)
+    socket.emit("cursor_move", { x: normPos.x, y: normPos.y });
 
-    const to = getRelativeCoords(e, canvasRef.current);
-    const from = lastPosition;
-    const drawData = { from, to, color, size, tool, glow };
+    if (!isDrawing || !currentStroke) return;
 
-    // Draw locally
-    handleDraw(drawData);
+    const lastPointNorm = currentStroke.points[currentStroke.points.length - 1];
+    const from = denormalizeCoords(lastPointNorm, width, height);
+    const to = pos;
 
-    // Send to server
-    socket.emit("draw", { roomId, ...drawData });
+    // Draw locally immediately
+    const ctx = canvas.getContext("2d");
+    drawSegment(ctx, from, to, color, size, tool, glow);
 
-    setLastPosition(to);
+    // Track for history
+    setCurrentStroke(prev => ({
+      ...prev,
+      points: [...prev.points, normPos]
+    }));
 
-  }, [isDrawing, lastPosition, roomId, userName, userColor]);
+    // Emit point
+    socket.emit("stroke_point", {
+      from: lastPointNorm,
+      to: normPos,
+      color, size, tool, glow
+    });
 
-  const endDraw = useCallback((e) => {
+  }, [isDrawing, currentStroke]);
+
+  const endDraw = useCallback(() => {
+    if (!isDrawing || !currentStroke) return;
+
     setIsDrawing(false);
-    setLastPosition(null);
-  }, []);
+
+    // Finalize stroke
+    socket.emit("stroke_end", { stroke: currentStroke });
+    setStrokes(prev => [...prev, currentStroke]);
+    setCurrentStroke(null);
+  }, [isDrawing, currentStroke]);
 
   const undo = useCallback(() => {
     socket.emit("undo", { roomId });
   }, [roomId]);
 
   const clearCanvas = () => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     socket.emit("clear_canvas", { roomId });
   };
-
 
   return { canvasRef, startDraw, moveDraw, endDraw, undo, clearCanvas, remoteCursors };
 };

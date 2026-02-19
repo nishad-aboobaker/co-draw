@@ -21,15 +21,22 @@ export default function Toolbar({
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 24px;
+          gap: 20px;
           padding: 24px 12px;
           width: 72px;
+          flex-shrink: 0;
           background: rgba(10, 10, 15, 0.6);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border-right: 1px solid rgba(255, 255, 255, 0.08);
           z-index: 40;
           user-select: none;
+          overflow-y: auto;
+          scrollbar-width: none;
+        }
+
+        .toolbar-island::-webkit-scrollbar {
+          display: none;
         }
 
         .tool-btn {

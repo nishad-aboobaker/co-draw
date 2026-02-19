@@ -31,7 +31,7 @@ export default function CanvasArea({
           position: absolute;
           pointer-events: none;
           z-index: 100;
-          transition: left 0.1s linear, top 0.1s linear;
+          transition: left 0.05s linear, top 0.05s linear;
         }
 
         .cursor-glow {
@@ -98,10 +98,11 @@ export default function CanvasArea({
       <canvas
         ref={canvasRef}
         style={{
-          position: "absolute",
-          inset: 0,
+          width: "100%",
+          height: "100%",
           cursor: tool === "eraser" ? "cell" : "crosshair",
           touchAction: "none",
+          display: "block",
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
