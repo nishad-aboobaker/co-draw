@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import socket from "../socket";
 
 /**
@@ -329,26 +329,6 @@ export function useCanvas({ roomId, userName, userColor }) {
     observer.observe(parent);
 
     return () => observer.disconnect();
-  }, [redrawAll]);
-
-  // Immediate pre-paint sizing fallback
-  useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent || !parent.clientWidth) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    dprRef.current = dpr;
-    const width = parent.clientWidth;
-    const height = parent.clientHeight;
-
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(height * dpr);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    redrawAll();
   }, [redrawAll]);
 
   return { canvasRef, startDraw, moveDraw, endDraw, undo, clearCanvas, remoteCursors };
