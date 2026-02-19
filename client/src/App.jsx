@@ -108,7 +108,7 @@ export default function App() {
           onUndo={undo}
           onClear={clearCanvas}
         />
-        <main style={{ flex: 1, position: "relative" }}>
+        <main style={{ flex: 1, display: 'flex', position: "relative" }}>
           <CanvasArea
             canvasRef={canvasRef}
             remoteCursors={remoteCursors}
