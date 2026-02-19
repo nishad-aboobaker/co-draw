@@ -19,6 +19,7 @@ export default function CanvasArea({
           position: relative;
           overflow: hidden;
           background: #0a0a0f;
+          min-width: 0;
           /* Subtle Dark Grid */
           background-image: 
             linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),

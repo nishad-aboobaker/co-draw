@@ -108,19 +108,17 @@ export default function App() {
           onUndo={undo}
           onClear={clearCanvas}
         />
-        <main style={{ flex: 1, display: 'flex', position: "relative" }}>
-          <CanvasArea
-            canvasRef={canvasRef}
-            remoteCursors={remoteCursors}
-            tool={tool}
-            roomId={session.roomId}
-            isAlone={users.length <= 1}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-          />
-        </main>
+        <CanvasArea
+          canvasRef={canvasRef}
+          remoteCursors={remoteCursors}
+          tool={tool}
+          roomId={session.roomId}
+          isAlone={users.length <= 1}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        />
       </div>
     </div>
   );
